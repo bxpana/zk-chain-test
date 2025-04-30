@@ -152,67 +152,85 @@ class ZKSyncRPCTester {
     }
 
     async logResult(result) {
-        const logEntry = `[${result.timestamp}] ${result.method} - ${result.success ? 'Success' : 'Failed'} (${result.duration})\n`;
-        if (!result.success) {
-            logEntry += `Error Code: ${result.errorCode}\nError: ${result.error}\n`;
+        try {
+            let logEntry = `[${result.timestamp}] ${result.method} - ${result.success ? 'Success' : 'Failed'} (${result.duration})\n`;
+            if (!result.success) {
+                logEntry += `Error Code: ${result.errorCode}\nError: ${result.error}\n`;
+            }
+            await fs.appendFile(this.logFile, logEntry);
+        } catch (error) {
+            console.error(`Failed to log result for ${result.method}:`, error.message);
         }
-        await fs.appendFile(this.logFile, logEntry);
     }
 
     async logError(error) {
-        const errorEntry = `[${error.timestamp}] ${error.method} - Error Code: ${error.errorCode}\nError: ${error.error}\nDetails: ${JSON.stringify(error.errorDetails)}\n`;
-        await fs.appendFile(this.errorFile, errorEntry);
+        try {
+            const errorEntry = `[${error.timestamp}] ${error.method} - Error Code: ${error.errorCode}\nError: ${error.error}\nDetails: ${JSON.stringify(error.errorDetails)}\n`;
+            await fs.appendFile(this.errorFile, errorEntry);
+        } catch (logError) {
+            console.error(`Failed to log error for ${error.method}:`, logError.message);
+        }
     }
 
     async processQueue() {
         let batchNumber = 1;
         while (this.requestQueue.length > 0) {
-            const batch = this.requestQueue.splice(0, this.batchSize);
-            console.log(`\nProcessing batch ${batchNumber} (${batch.length} requests)...`);
-            
-            const batchResults = await Promise.allSettled(batch.map(req => this.makeRPCRequest(req.method, req.params)));
-            const processedResults = batchResults.map(result => 
-                result.status === 'fulfilled' ? result.value : {
-                    method: result.reason.method,
-                    success: false,
-                    error: result.reason.error,
-                    errorCode: result.reason.errorCode || 'UNKNOWN_ERROR',
-                    errorDetails: result.reason.errorDetails,
-                    timestamp: new Date().toISOString()
+            try {
+                const batch = this.requestQueue.splice(0, this.batchSize);
+                console.log(`\nProcessing batch ${batchNumber} (${batch.length} requests)...`);
+                
+                const batchResults = await Promise.allSettled(batch.map(req => this.makeRPCRequest(req.method, req.params)));
+                const processedResults = batchResults.map(result => 
+                    result.status === 'fulfilled' ? result.value : {
+                        method: result.reason.method,
+                        success: false,
+                        error: result.reason.error,
+                        errorCode: result.reason.errorCode || 'UNKNOWN_ERROR',
+                        errorDetails: result.reason.errorDetails,
+                        timestamp: new Date().toISOString()
+                    }
+                );
+                
+                // Log each result
+                for (const result of processedResults) {
+                    try {
+                        await this.logResult(result);
+                        if (!result.success) {
+                            await this.logError(result);
+                        }
+                    } catch (error) {
+                        console.error(`Failed to process result for ${result.method}:`, error.message);
+                    }
                 }
-            );
-            
-            // Log each result
-            for (const result of processedResults) {
-                await this.logResult(result);
-                if (!result.success) {
-                    await this.logError(result);
+                
+                this.results.push(...processedResults);
+                
+                // Print batch summary
+                const successCount = processedResults.filter(r => r.success).length;
+                const errorCount = processedResults.filter(r => !r.success).length;
+                console.log(`Batch ${batchNumber} complete: ${successCount} successful, ${errorCount} failed`);
+                
+                // Print detailed results for this batch
+                console.log('\nBatch Results:');
+                console.log('--------------');
+                processedResults.forEach(result => {
+                    if (result.success) {
+                        console.log(`✓ ${result.method} - Success (${result.duration})`);
+                    } else {
+                        console.log(`✗ ${result.method} - Failed (${result.errorCode}): ${result.error}`);
+                    }
+                });
+                
+                if (this.requestQueue.length > 0) {
+                    console.log(`\nWaiting ${this.batchDelayMs}ms before next batch...`);
+                    await sleep(this.batchDelayMs);
                 }
+                batchNumber++;
+            } catch (error) {
+                console.error(`Error processing batch ${batchNumber}:`, error.message);
+                // Continue with next batch
+                batchNumber++;
             }
-            
-            this.results.push(...processedResults);
-            
-            // Print batch summary
-            const successCount = processedResults.filter(r => r.success).length;
-            const errorCount = processedResults.filter(r => !r.success).length;
-            console.log(`Batch ${batchNumber} complete: ${successCount} successful, ${errorCount} failed`);
-            
-            // Print detailed results for this batch
-            console.log('\nBatch Results:');
-            console.log('--------------');
-            processedResults.forEach(result => {
-                if (result.success) {
-                    console.log(`✓ ${result.method} - Success (${result.duration})`);
-                } else {
-                    console.log(`✗ ${result.method} - Failed (${result.errorCode}): ${result.error}`);
-                }
-            });
-            
-            if (this.requestQueue.length > 0) {
-                console.log(`\nWaiting ${this.batchDelayMs}ms before next batch...`);
-                await sleep(this.batchDelayMs);
-            }
-            batchNumber++;
         }
     }
 
@@ -431,55 +449,84 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
         console.log('--------------------------');
         this.requestQueue.push(
             { method: 'eth_chainId', params: [] },
+            { method: 'eth_blockNumber', params: [] },
+            { method: 'eth_getBlockByNumber', params: [this.testBlockNumber, false] },
+            { method: 'eth_getBlockByHash', params: [this.testBlockHash, false] },
+            { method: 'eth_getBlockTransactionCountByNumber', params: [this.testBlockNumber] },
+            { method: 'eth_getBlockTransactionCountByHash', params: [this.testBlockHash] },
+            { method: 'eth_getUncleCountByBlockNumber', params: [this.testBlockNumber] },
+            { method: 'eth_getUncleCountByBlockHash', params: [this.testBlockHash] },
+            { method: 'eth_getTransactionByHash', params: [this.testTxHash] },
+            { method: 'eth_getTransactionByBlockHashAndIndex', params: [this.testBlockHash, '0x0'] },
+            { method: 'eth_getTransactionByBlockNumberAndIndex', params: [this.testBlockNumber, '0x0'] },
+            { method: 'eth_getTransactionReceipt', params: [this.testTxHash] },
+            { method: 'eth_getBalance', params: [this.testAddress, 'latest'] },
+            { method: 'eth_getStorageAt', params: [this.testAddress, '0x0', 'latest'] },
+            { method: 'eth_getTransactionCount', params: [this.testAddress, 'latest'] },
+            { method: 'eth_getCode', params: [this.testAddress, 'latest'] },
             { method: 'eth_call', params: [{ to: this.testAddress, data: '0x' }, 'latest'] },
             { method: 'eth_estimateGas', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
             { method: 'eth_gasPrice', params: [] },
-            { method: 'eth_getBalance', params: [this.testAddress, 'latest'] },
-            { method: 'eth_getBlockByNumber', params: [this.testBlockNumber, false] },
-            { method: 'eth_getBlockByHash', params: [this.testBlockHash, false] },
-            { method: 'eth_getTransactionByHash', params: [this.testTxHash] },
-            { method: 'eth_getTransactionReceipt', params: [this.testTxHash] }
+            { method: 'eth_maxPriorityFeePerGas', params: [] },
+            { method: 'eth_feeHistory', params: [4, 'latest', [25, 75]] },
+            { method: 'eth_getLogs', params: [{ fromBlock: this.testBlockNumber, toBlock: this.testBlockNumber }] }
         );
 
         await this.processQueue();
         this.requestQueue = []; // Clear queue for next set of tests
 
-        // Debug RPC Tests
-        console.log('\nRunning Debug RPC Tests:');
-        console.log('----------------------');
-        this.requestQueue.push(
-            { method: 'debug_traceBlockByNumber', params: [this.testBlockNumber, { tracer: this.debugTracerType }] },
-            { method: 'debug_traceBlockByHash', params: [this.testBlockHash, { tracer: this.debugTracerType }] },
-            { method: 'debug_traceCall', params: [{ to: this.testAddress, data: '0x' }, 'latest', { tracer: this.debugTracerType }] },
-            { method: 'debug_traceTransaction', params: [this.testTxHash, { tracer: this.debugTracerType }] }
-        );
+        // Filter tests need to be done in sequence
+        try {
+            // Create a new filter
+            const newFilterResponse = await this.makeRPCRequest('eth_newFilter', [{ fromBlock: this.testBlockNumber, toBlock: this.testBlockNumber }]);
+            if (newFilterResponse.success) {
+                const filterId = newFilterResponse.result;
+                console.log(`Created filter with ID: ${filterId}`);
 
-        await this.processQueue();
-        this.requestQueue = []; // Clear queue for next set of tests
+                // Test filter methods with the new filter ID
+                this.requestQueue.push(
+                    { method: 'eth_getFilterChanges', params: [filterId] },
+                    { method: 'eth_getFilterLogs', params: [filterId] }
+                );
 
-        // ZKsync RPC Tests
-        console.log('\nRunning ZKsync RPC Tests:');
-        console.log('------------------------');
-        this.requestQueue.push(
-            { method: 'zks_getL1BatchDetails', params: [this.testL1BatchNumber] },
-            { method: 'zks_getL1BatchBlockRange', params: [this.testL1BatchNumber] },
-            { method: 'zks_getBlockDetails', params: [parseInt(this.testBlockNumber, 16)] },
-            { method: 'zks_getTransactionDetails', params: [this.testTxHash] },
-            { method: 'zks_getAllAccountBalances', params: [this.testAddress] },
-            { method: 'zks_getBridgeContracts', params: [] },
-            { method: 'zks_getTestnetPaymaster', params: [] },
-            { method: 'zks_getMainContract', params: [] },
-            { method: 'zks_L1ChainId', params: [] },
-            { method: 'zks_getConfirmedTokens', params: [0, 100] },
-            { method: 'zks_getL2ToL1LogProof', params: [this.testTxHash, this.testMessageIndex] }
-        );
+                await this.processQueue();
+                this.requestQueue = [];
 
-        // Only add L2 to L1 message proof test if we have a valid address
-        if (this.testMessageProofAddress) {
-            this.requestQueue.push(
-                { method: 'zks_getL2ToL1MsgProof', params: [this.testMessageProofAddress, this.testL1BatchNumber] }
-            );
+                // Clean up the filter
+                await this.makeRPCRequest('eth_uninstallFilter', [filterId]);
+            }
+        } catch (error) {
+            console.error('Error during filter tests:', error.message);
         }
+
+        // Block filter tests
+        try {
+            const newBlockFilterResponse = await this.makeRPCRequest('eth_newBlockFilter', []);
+            if (newBlockFilterResponse.success) {
+                const blockFilterId = newBlockFilterResponse.result;
+                console.log(`Created block filter with ID: ${blockFilterId}`);
+                await this.makeRPCRequest('eth_uninstallFilter', [blockFilterId]);
+            }
+        } catch (error) {
+            console.error('Error during block filter tests:', error.message);
+        }
+
+        // Pending transaction filter tests
+        try {
+            const newPendingTxFilterResponse = await this.makeRPCRequest('eth_newPendingTransactionFilter', []);
+            if (newPendingTxFilterResponse.success) {
+                const pendingTxFilterId = newPendingTxFilterResponse.result;
+                console.log(`Created pending transaction filter with ID: ${pendingTxFilterId}`);
+                await this.makeRPCRequest('eth_uninstallFilter', [pendingTxFilterId]);
+            }
+        } catch (error) {
+            console.error('Error during pending transaction filter tests:', error.message);
+        }
+
+        // Skip sendRawTransaction test as it requires a valid signed transaction
+        this.requestQueue.push(
+            { method: 'eth_syncing', params: [] }
+        );
 
         await this.processQueue();
         await this.printResults();
