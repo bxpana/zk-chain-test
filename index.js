@@ -444,32 +444,33 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
             this.testMessageProofAddress = null;
         }
 
-        // Ethereum RPC Tests
-        console.log('\nRunning Ethereum RPC Tests:');
+        // ZKsync RPC Tests
+        console.log('\nRunning ZKsync RPC Tests:');
         console.log('--------------------------');
         this.requestQueue.push(
-            { method: 'eth_chainId', params: [] },
-            { method: 'eth_blockNumber', params: [] },
-            { method: 'eth_getBlockByNumber', params: [this.testBlockNumber, false] },
-            { method: 'eth_getBlockByHash', params: [this.testBlockHash, false] },
-            { method: 'eth_getBlockTransactionCountByNumber', params: [this.testBlockNumber] },
-            { method: 'eth_getBlockTransactionCountByHash', params: [this.testBlockHash] },
-            { method: 'eth_getUncleCountByBlockNumber', params: [this.testBlockNumber] },
-            { method: 'eth_getUncleCountByBlockHash', params: [this.testBlockHash] },
-            { method: 'eth_getTransactionByHash', params: [this.testTxHash] },
-            { method: 'eth_getTransactionByBlockHashAndIndex', params: [this.testBlockHash, '0x0'] },
-            { method: 'eth_getTransactionByBlockNumberAndIndex', params: [this.testBlockNumber, '0x0'] },
-            { method: 'eth_getTransactionReceipt', params: [this.testTxHash] },
-            { method: 'eth_getBalance', params: [this.testAddress, 'latest'] },
-            { method: 'eth_getStorageAt', params: [this.testAddress, '0x0', 'latest'] },
-            { method: 'eth_getTransactionCount', params: [this.testAddress, 'latest'] },
-            { method: 'eth_getCode', params: [this.testAddress, 'latest'] },
-            { method: 'eth_call', params: [{ to: this.testAddress, data: '0x' }, 'latest'] },
-            { method: 'eth_estimateGas', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
-            { method: 'eth_gasPrice', params: [] },
-            { method: 'eth_maxPriorityFeePerGas', params: [] },
-            { method: 'eth_feeHistory', params: [4, 'latest', [25, 75]] },
-            { method: 'eth_getLogs', params: [{ fromBlock: this.testBlockNumber, toBlock: this.testBlockNumber }] }
+            { method: 'zks_estimateFee', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
+            { method: 'zks_estimateGasL1ToL2', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
+            { method: 'zks_getBridgehubContract', params: [] },
+            { method: 'zks_getMainContract', params: [] },
+            { method: 'zks_getTestnetPaymaster', params: [] },
+            { method: 'zks_getBridgeContracts', params: [] },
+            { method: 'zks_L1ChainId', params: [] },
+            { method: 'zks_getBaseTokenL1Address', params: [] },
+            { method: 'zks_getConfirmedTokens', params: [0, 100] },
+            { method: 'zks_getAllAccountBalances', params: [this.testAddress] },
+            { method: 'zks_getL2ToL1MsgProof', params: [parseInt(this.testBlockNumber, 16), this.testMessageIndex, this.testMessageProofAddress] },
+            { method: 'zks_getL2ToL1LogProof', params: [this.testTxHash, 0] },
+            { method: 'zks_L1BatchNumber', params: [] },
+            { method: 'zks_getBlockDetails', params: [parseInt(this.testBlockNumber, 16)] },
+            { method: 'zks_getTransactionDetails', params: [this.testTxHash] },
+            { method: 'zks_getRawBlockTransactions', params: [parseInt(this.testBlockNumber, 16)] },
+            { method: 'zks_getL1BatchDetails', params: [parseInt(this.testL1BatchNumber, 16)] },
+            { method: 'zks_getBytecodeByHash', params: [this.testTxHash] },
+            { method: 'zks_getL1BatchBlockRange', params: [parseInt(this.testL1BatchNumber, 16)] },
+            { method: 'zks_getL1GasPrice', params: [] },
+            { method: 'zks_getFeeParams', params: [] },
+            { method: 'zks_getProtocolVersion', params: [] },
+            { method: 'zks_getProof', params: [this.testAddress, ['0x0000000000000000000000000000000000000000000000000000000000000000'], parseInt(this.testL1BatchNumber, 16)] }
         );
 
         await this.processQueue();

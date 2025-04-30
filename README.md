@@ -76,18 +76,30 @@ The script implements rate limiting to stay within ZKsync's limits:
 - [ ] debug_traceTransaction
 
 ### ZKsync RPC Tests
-- [ ] zks_getL1BatchDetails
-- [ ] zks_getL1BatchBlockRange
+- [ ] zks_estimateFee
+- [ ] zks_estimateGasL1ToL2
+- [ ] zks_getBridgehubContract
+- [ ] zks_getMainContract
+- [ ] zks_getTestnetPaymaster
+- [ ] zks_getBridgeContracts
+- [ ] zks_L1ChainId
+- [ ] zks_getBaseTokenL1Address
+- [ ] zks_getConfirmedTokens
+- [ ] zks_getAllAccountBalances
+- [ ] zks_getL2ToL1MsgProof
+- [ ] zks_getL2ToL1LogProof
+- [ ] zks_L1BatchNumber
 - [ ] zks_getBlockDetails
 - [ ] zks_getTransactionDetails
-- [ ] zks_getAllAccountBalances
-- [ ] zks_getBridgeContracts
-- [ ] zks_getTestnetPaymaster
-- [ ] zks_getMainContract
-- [ ] zks_L1ChainId
-- [ ] zks_getConfirmedTokens
-- [ ] zks_getL2ToL1LogProof
-- [ ] zks_getL2ToL1MsgProof
+- [ ] zks_getRawBlockTransactions
+- [ ] zks_getL1BatchDetails
+- [ ] zks_getBytecodeByHash
+- [ ] zks_getL1BatchBlockRange
+- [ ] zks_getL1GasPrice
+- [ ] zks_getFeeParams
+- [ ] zks_getProtocolVersion
+- [ ] zks_getProof
+- [ ] zks_sendRawTransactionWithDetailedOutput
 
 ## Usage
 

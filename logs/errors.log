@@ -1,0 +1,6 @@
+[2025-04-30T23:12:06.166Z] zks_getL2ToL1MsgProof - Error Code: -32602
+Error: Invalid params
+Details: {"code":-32602,"message":"Invalid params","data":"invalid type: integer `0`, expected a (both 0x-prefixed or not) hex string or byte array containing 20 bytes at line 1 column 1"}
+[2025-04-30T23:12:07.348Z] zks_getProof - Error Code: -32601
+Error: Method not implemented
+Details: {"code":-32601,"message":"Method not implemented"}
