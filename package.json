@@ -4,10 +4,12 @@
   "description": "A script to test ZKsync RPC methods",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "rpc": "source .env && node index.js",
+    "deploy:token": "source .env && TOKEN_NAME=$TOKEN_NAME TOKEN_SYMBOL=$TOKEN_SYMBOL forge script script/DeployERC20.s.sol --zksync --rpc-url $RPC_URL --broadcast --verify --verifier zksync --verifier-url $ZKSYNC_VERIFIER_URL --zk-optimizer-mode 3"
   },
   "dependencies": {
     "axios": "^1.6.7",
-    "dotenv": "^16.4.1"
+    "dotenv": "^16.4.1",
+    "cross-env": "^7.0.3"
   }
-} 
+}

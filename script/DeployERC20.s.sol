@@ -14,11 +14,13 @@ contract DeployERC20 is Script {
         uint256 deployerPrivateKey = vm.parseUint(privateKeyStr);
         vm.startBroadcast(deployerPrivateKey);
 
-        // Token parameters
-        string memory name = "MyToken";
-        string memory symbol = "MTK";
+        // Get token parameters from command line arguments
+        string memory name = vm.envString("TOKEN_NAME");
+        string memory symbol = vm.envString("TOKEN_SYMBOL");
+        
+        // Fixed values
         uint8 decimals = 18;
-        uint256 initialSupply = 1000000 * 10 ** decimals;
+        uint256 initialSupply = 100 * 10 ** decimals;
 
         // Deploy the token
         MyToken token = new MyToken(name, symbol, decimals, initialSupply);
