@@ -1,9 +1,0 @@
-[2025-05-01T20:13:01.972Z] zks_getL2ToL1MsgProof - Error Code: -32602
-Error: Invalid params
-Details: {"code":-32602,"message":"Invalid params","data":"invalid type: integer `0`, expected a (both 0x-prefixed or not) hex string or byte array containing 20 bytes at line 1 column 1"}
-[2025-05-01T20:13:03.061Z] zks_getProof - Error Code: -32601
-Error: Method not implemented
-Details: {"code":-32601,"message":"Method not implemented"}
-[2025-05-01T20:13:03.338Z] eth_getFilterChanges - Error Code: -32602
-Error: Filter not found
-Details: {"code":-32602,"message":"Filter not found"}

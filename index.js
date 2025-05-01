@@ -37,6 +37,57 @@ class ZKSyncRPCTester {
         this.errorFile = path.join(__dirname, 'logs', 'errors.log');
     }
 
+    async validateEnvironment() {
+        const missingFields = [];
+        const invalidFields = [];
+
+        // Check for missing required fields
+        if (!process.env.RPC_URL) missingFields.push('RPC_URL');
+        if (!process.env.TEST_TX_HASH) missingFields.push('TEST_TX_HASH');
+        if (!process.env.TEST_ADDRESS) missingFields.push('TEST_ADDRESS');
+        if (!process.env.TEST_L1_BATCH_NUMBER) missingFields.push('TEST_L1_BATCH_NUMBER');
+
+        // Check for invalid formats
+        if (process.env.TEST_TX_HASH && !process.env.TEST_TX_HASH.startsWith('0x')) {
+            invalidFields.push('TEST_TX_HASH (must start with 0x)');
+        }
+        if (process.env.TEST_ADDRESS && !process.env.TEST_ADDRESS.startsWith('0x')) {
+            invalidFields.push('TEST_ADDRESS (must start with 0x)');
+        }
+        if (process.env.TEST_L1_BATCH_NUMBER && isNaN(parseInt(process.env.TEST_L1_BATCH_NUMBER))) {
+            invalidFields.push('TEST_L1_BATCH_NUMBER (must be a number)');
+        }
+
+        // Check for fields needed by specific RPC methods
+        const messageProofMethods = ['zks_getL2ToL1MsgProof', 'zks_getL2ToL1LogProof'];
+        if (messageProofMethods.some(method => this.requestQueue.some(req => req.method === method))) {
+            if (!process.env.TEST_MESSAGE_PROOF_ADDRESS) {
+                missingFields.push('TEST_MESSAGE_PROOF_ADDRESS (required for L2 to L1 message proofs)');
+            }
+        }
+
+        if (missingFields.length > 0 || invalidFields.length > 0) {
+            let errorMessage = 'Environment validation failed:\n';
+            
+            if (missingFields.length > 0) {
+                errorMessage += '\nMissing required fields:\n';
+                missingFields.forEach(field => {
+                    errorMessage += `- ${field}\n`;
+                });
+            }
+
+            if (invalidFields.length > 0) {
+                errorMessage += '\nInvalid field formats:\n';
+                invalidFields.forEach(field => {
+                    errorMessage += `- ${field}\n`;
+                });
+            }
+
+            errorMessage += '\nPlease update your .env file with the required values.';
+            throw new Error(errorMessage);
+        }
+    }
+
     async fetchLatestBlockInfo() {
         try {
             // First get the latest block number
@@ -132,6 +183,19 @@ class ZKSyncRPCTester {
                 };
             }
 
+            // Check if result is null
+            if (response.data.result === null) {
+                return {
+                    method,
+                    success: false,
+                    error: 'Test skipped - No data available',
+                    errorCode: 'SKIPPED',
+                    errorDetails: 'The RPC method returned null, indicating no data was available for this test',
+                    duration: `${duration}ms`,
+                    timestamp: new Date().toISOString()
+                };
+            }
+
             return {
                 method,
                 success: true,
@@ -153,8 +217,12 @@ class ZKSyncRPCTester {
 
     async logResult(result) {
         try {
-            let logEntry = `[${result.timestamp}] ${result.method} - ${result.success ? 'Success' : 'Failed'} (${result.duration})\n`;
-            if (!result.success) {
+            let logEntry = `[${result.timestamp}] ${result.method} - ${result.success ? 'Success' : result.errorCode === 'SKIPPED' ? 'Skipped' : 'Failed'} (${result.duration})\n`;
+            if (result.success) {
+                logEntry += `Result: ${JSON.stringify(result.result, null, 2)}\n`;
+            } else if (result.errorCode === 'SKIPPED') {
+                logEntry += `Reason: ${result.error}\n`;
+            } else {
                 logEntry += `Error Code: ${result.errorCode}\nError: ${result.error}\n`;
             }
             await fs.appendFile(this.logFile, logEntry);
@@ -375,6 +443,24 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
         }
     }
 
+    // Helper function to convert hex string to decimal number
+    hexToDecimal(hexString) {
+        if (!hexString) return null;
+        if (hexString.startsWith('0x')) {
+            return parseInt(hexString, 16);
+        }
+        return parseInt(hexString, 16);
+    }
+
+    // Helper function to ensure block number is in correct format
+    async validateAndFormatBlockNumber(blockNumber) {
+        if (!blockNumber) return null;
+        if (typeof blockNumber === 'string' && blockNumber.startsWith('0x')) {
+            return this.hexToDecimal(blockNumber);
+        }
+        return parseInt(blockNumber);
+    }
+
     async runTests() {
         console.log('Starting ZKsync RPC tests...');
         console.log(`RPC URL: ${this.rpcUrl}`);
@@ -384,6 +470,14 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
         console.log(`Rate limit: ${this.maxRequestsPerSecond} requests/second`);
         console.log(`Batch size: ${this.batchSize}`);
         console.log(`Batch delay: ${this.batchDelayMs}ms\n`);
+
+        // Validate environment before running tests
+        try {
+            await this.validateEnvironment();
+        } catch (error) {
+            console.error(error.message);
+            process.exit(1);
+        }
 
         // Initialize log files
         try {
@@ -395,58 +489,7 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
             throw error;
         }
 
-        // Fetch latest block info if not provided
-        let blockInfo;
-        try {
-            if (!process.env.TEST_BLOCK_NUMBER || !process.env.TEST_BLOCK_HASH) {
-                console.log('Fetching latest block information...');
-                blockInfo = await this.fetchLatestBlockInfo();
-            }
-        } catch (error) {
-            console.error('Failed to fetch latest block info:', error.message);
-            throw error;
-        }
-
-        // Set block number and hash
-        try {
-            this.testBlockNumber = process.env.TEST_BLOCK_NUMBER 
-                ? await this.validateBlockNumber(process.env.TEST_BLOCK_NUMBER)
-                : blockInfo.blockNumber;
-            
-            this.testBlockHash = process.env.TEST_BLOCK_HASH
-                ? await this.validateBlockHash(process.env.TEST_BLOCK_HASH)
-                : blockInfo.blockHash;
-        } catch (error) {
-            console.error('Error validating block information:', error.message);
-            throw error;
-        }
-
-        console.log(`Using block number: ${this.testBlockNumber}`);
-        console.log(`Using block hash: ${this.testBlockHash}\n`);
-
-        // Validate message proof address
-        try {
-            if (process.env.TEST_MESSAGE_PROOF_ADDRESS) {
-                console.log('Validating message proof address...');
-                this.testMessageProofAddress = await this.validateMessageProofAddress(process.env.TEST_MESSAGE_PROOF_ADDRESS);
-                if (this.testMessageProofAddress) {
-                    console.log(`Using validated message proof address: ${this.testMessageProofAddress}`);
-                } else {
-                    console.log('Message proof address validation failed, skipping L2 to L1 message proof tests');
-                }
-            } else {
-                console.log('No message proof address provided, suggesting valid addresses...');
-                await this.suggestValidAddresses();
-                this.testMessageProofAddress = null;
-            }
-        } catch (error) {
-            console.warn('Error validating message proof address:', error.message);
-            this.testMessageProofAddress = null;
-        }
-
-        // ZKsync RPC Tests
-        console.log('\nRunning ZKsync RPC Tests:');
-        console.log('--------------------------');
+        // First batch of independent RPC calls
         this.requestQueue.push(
             { method: 'zks_estimateFee', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
             { method: 'zks_estimateGasL1ToL2', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
@@ -458,28 +501,62 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
             { method: 'zks_getBaseTokenL1Address', params: [] },
             { method: 'zks_getConfirmedTokens', params: [0, 100] },
             { method: 'zks_getAllAccountBalances', params: [this.testAddress] },
-            { method: 'zks_getL2ToL1MsgProof', params: [parseInt(this.testBlockNumber, 16), this.testMessageIndex, this.testMessageProofAddress] },
-            { method: 'zks_getL2ToL1LogProof', params: [this.testTxHash, 0] },
-            { method: 'zks_L1BatchNumber', params: [] },
-            { method: 'zks_getBlockDetails', params: [parseInt(this.testBlockNumber, 16)] },
-            { method: 'zks_getTransactionDetails', params: [this.testTxHash] },
-            { method: 'zks_getRawBlockTransactions', params: [parseInt(this.testBlockNumber, 16)] },
-            { method: 'zks_getL1BatchDetails', params: [parseInt(this.testL1BatchNumber, 16)] },
-            { method: 'zks_getBytecodeByHash', params: [this.testTxHash] },
-            { method: 'zks_getL1BatchBlockRange', params: [parseInt(this.testL1BatchNumber, 16)] },
-            { method: 'zks_getL1GasPrice', params: [] },
-            { method: 'zks_getFeeParams', params: [] },
-            { method: 'zks_getProtocolVersion', params: [] },
-            { method: 'zks_getProof', params: [this.testAddress, ['0x0000000000000000000000000000000000000000000000000000000000000000'], parseInt(this.testL1BatchNumber, 16)] }
+            { method: 'zks_L1BatchNumber', params: [] }
         );
 
         await this.processQueue();
-        this.requestQueue = []; // Clear queue for next set of tests
+        this.requestQueue = [];
+
+        // Get the latest L1 batch number from the previous results
+        const l1BatchNumberResult = this.results.find(r => r.method === 'zks_L1BatchNumber' && r.success);
+        const latestL1BatchNumber = l1BatchNumberResult ? this.hexToDecimal(l1BatchNumberResult.result) : null;
+
+        // Get latest block number
+        const blockNumberResponse = await this.makeRPCRequest('eth_blockNumber', []);
+        const latestBlockNumber = blockNumberResponse.success ? this.hexToDecimal(blockNumberResponse.result) : null;
+
+        // Second batch using data from first batch
+        this.requestQueue.push(
+            { method: 'zks_getL2ToL1MsgProof', params: [latestBlockNumber, this.testMessageIndex, this.testMessageProofAddress] },
+            { method: 'zks_getL2ToL1LogProof', params: [this.testTxHash, 0] },
+            { method: 'zks_getBlockDetails', params: [latestBlockNumber] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+
+        // Get block details from the previous results
+        const blockDetailsResult = this.results.find(r => r.method === 'zks_getBlockDetails' && r.success);
+        const blockDetails = blockDetailsResult ? blockDetailsResult.result : null;
+        const l1BatchNumber = blockDetails ? blockDetails.l1BatchNumber : this.testL1BatchNumber;
+
+        // Third batch using data from previous results
+        this.requestQueue.push(
+            { method: 'zks_getTransactionDetails', params: [this.testTxHash] },
+            { method: 'zks_getRawBlockTransactions', params: [latestBlockNumber] },
+            { method: 'zks_getL1BatchDetails', params: [this.testL1BatchNumber] },
+            { method: 'zks_getBytecodeByHash', params: [this.testTxHash] },
+            { method: 'zks_getL1BatchBlockRange', params: [this.testL1BatchNumber] },
+            { method: 'zks_getL1GasPrice', params: [] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+
+        // Final batch
+        this.requestQueue.push(
+            { method: 'zks_getFeeParams', params: [] },
+            { method: 'zks_getProtocolVersion', params: [] },
+            { method: 'zks_getProof', params: [this.testAddress, ['0x0000000000000000000000000000000000000000000000000000000000000000'], l1BatchNumber] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
 
         // Filter tests need to be done in sequence
         try {
             // Create a new filter
-            const newFilterResponse = await this.makeRPCRequest('eth_newFilter', [{ fromBlock: this.testBlockNumber, toBlock: this.testBlockNumber }]);
+            const newFilterResponse = await this.makeRPCRequest('eth_newFilter', [{ fromBlock: latestBlockNumber, toBlock: latestBlockNumber }]);
             if (newFilterResponse.success) {
                 const filterId = newFilterResponse.result;
                 console.log(`Created filter with ID: ${filterId}`);
