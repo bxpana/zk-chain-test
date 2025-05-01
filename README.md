@@ -27,6 +27,9 @@ Foundry-based contract deployment setup for ZKsync:
    ```bash
    npm install
    ```
+   This will automatically install:
+   - Node.js dependencies (axios, dotenv)
+   - Foundry dependencies (OpenZeppelin Contracts, Forge Std)
 4. Deploy an ERC20 token:
    ```bash
    npm run deploy:token
@@ -67,9 +70,21 @@ Create a `.env` file with the following settings:
 - `BATCH_SIZE`: Number of requests per batch (default: 10)
 - `BATCH_DELAY_MS`: Delay between batches in milliseconds (default: 1000)
 
+## Dependencies
+
+### Node.js Dependencies
+- axios: For making HTTP requests
+- dotenv: For environment variable management
+
+### Foundry Dependencies
+- OpenZeppelin Contracts: For ERC20 token implementation
+- Forge Std: For testing utilities
+
+All dependencies are automatically installed when you run `npm install`.
+
 ## Contract Deployment
 
-### ERC20 Token Deployment
+### ERC20 Token Deployment and Verification
 The repository includes a Foundry-based setup for deploying ERC20 tokens on ZKsync:
 
 ```bash
@@ -119,15 +134,3 @@ This will:
 - [ ] zks_getTransactionDetails
 - [ ] zks_getL1BatchDetails
 - [ ] zks_getProtocolVersion
-
-## Development Status
-
-- [x] Basic setup
-- [x] Environment configuration
-- [x] Rate limiting implementation
-- [x] ERC20 deployment setup
-- [ ] Ethereum RPC tests
-- [ ] Debug RPC tests
-- [ ] ZKsync RPC tests
-- [x] Error handling
-- [x] Results logging 
