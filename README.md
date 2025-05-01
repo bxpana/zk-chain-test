@@ -5,6 +5,30 @@ This script tests various JSON-RPC API methods for ZKsync chains. It includes te
 - [Debug JSON-RPC API](https://docs.zksync.io/zksync-protocol/api/debug-rpc)
 - [ZKsync JSON-RPC API](https://docs.zksync.io/zksync-protocol/api/zks-rpc)
 
+## Contract Deployment
+
+The repository also includes a Foundry-based contract deployment setup for ERC20 tokens on ZKsync:
+
+### Configuration
+- Uses `foundry.toml` for project configuration and remappings
+- Requires `.env` file with:
+  - `RPC_URL`: The RPC endpoint URL
+  - `ZKSYNC_VERIFIER_URL`: URL for contract verification
+  - `PRIVATE_KEY`: Private key for deployment (with or without 0x prefix)
+
+### Deployment
+To deploy and verify an ERC20 token:
+```bash
+forge script script/DeployERC20.s.sol \
+    --zksync \
+    --rpc-url $RPC_URL \
+    --broadcast \
+    --verify \
+    --verifier zksync \
+    --verifier-url $ZKSYNC_VERIFIER_URL \
+    --zk-optimizer-mode 3
+```
+
 ## Configuration
 
 The script requires a `.env` file with the following configuration:
