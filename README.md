@@ -1,136 +1,89 @@
 # ZKsync Chain Testing Suite
 
-This repository provides tools for testing and interacting with ZKsync chains, including RPC testing and contract deployment.
+This repository bundles two workflows:
+- a Node.js runner (`npm run rpc`) that hits Ethereum/ZKsync RPC endpoints with reproducible payloads, logging results under `logs/`
+- Foundry scripts for deploying example contracts (ERC20 + Counter) to L2 chains or general EVM testnets
 
-## Features
+Both pieces share the same `.env` configuration so you can reuse RPC endpoints, deployer credentials, and token metadata.
 
-### 1. RPC Testing
-Comprehensive testing suite for ZKsync's JSON-RPC APIs:
-- [Ethereum JSON-RPC API](https://docs.zksync.io/zksync-protocol/api/ethereum-rpc)
-- [Debug JSON-RPC API](https://docs.zksync.io/zksync-protocol/api/debug-rpc)
-- [ZKsync JSON-RPC API](https://docs.zksync.io/zksync-protocol/api/zks-rpc)
+## Contracts
 
-### 2. Contract Deployment
-Foundry-based contract deployment setup for ZKsync:
-- ERC20 token deployment and verification
-- ZKsync-specific configuration
-- Environment-based parameter management
+| Contract | Path | Notes |
+| --- | --- | --- |
+| `MyToken` | `src/MyToken.sol` | Thin wrapper around OpenZeppelin ERC20. Constructor accepts `name`, `symbol`, `decimals`, and `initialSupply`. The deploy scripts calculate `initialSupply` as `TOKEN_SUPPLY * 10 ** TOKEN_DECIMALS` and mint it to the broadcaster. |
+| `Counter` | `src/Counter.sol` | Simple increment/decrement utility used as a smoke-test deployment target. |
+
+## Available npm Scripts
+
+| Command | Description |
+| --- | --- |
+| `npm run rpc` | Loads `.env` and executes `index.js`, which exercises the RPC suites and writes structured logs to `logs/test_results.log` and `logs/errors.log`. |
+| `npm run deploy:token:zk` | Runs `forge script script/DeployERC20.s.sol` with ZKsync’s `--zksync` pipeline, broadcasts the deployment, and submits verification using `VERIFIER_URL`. Requires `PRIVATE_KEY`. |
+| `npm run deploy:token:evm` | Runs `forge script script/DeployERC20Evm.s.sol` against `L2_RPC_URL`. Reads token metadata plus optional `TOKEN_DECIMALS`/`TOKEN_SUPPLY`. Uses Foundry’s account or `PRIVATE_KEY` (see script). |
+| `npm run deploy:counter` | Uses `forge create` to deploy `Counter.sol` with the configured `--account` alias (recommended for hardware or keystore-backed flows). |
+
+> Tip: import your signer with `forge account import <alias>` and set `ACCOUNT=<alias>` in `.env` so both `deploy:token:evm` and `deploy:counter` share the same keystore entry.
 
 ## Quick Start
 
-1. Clone the repository
-2. Copy `.env-example` to `.env` and configure:
+1. Clone & configure the project.
+2. Copy `.env-example` → `.env`, then fill in RPC URLs, credentials, and token settings:
    ```bash
    cp .env-example .env
    ```
-3. Install dependencies:
+3. Install dependencies (installs Node + Foundry packages):
    ```bash
    npm install
    ```
-   This will automatically install:
-   - Node.js dependencies (axios, dotenv)
-   - Foundry dependencies (OpenZeppelin Contracts, Forge Std)
-4. Deploy an ERC20 token:
+4. (Optional) Import your Foundry account and export `ACCOUNT`:
    ```bash
-   npm run deploy:token
+   forge account import my-deployer
+   export ACCOUNT=my-deployer
    ```
-5. Run RPC tests:
+5. Deploy a token:
+   - ZKsync Era: `npm run deploy:token:zk`
+   - Generic EVM (uses `L2_RPC_URL`): `npm run deploy:token:evm`
+6. Deploy the `Counter` contract for smoke testing:
    ```bash
-   npm run test:rpc
+   npm run deploy:counter
+   ```
+7. Exercise RPC suites:
+   ```bash
+   npm run rpc
    ```
 
-## Configuration
+## Environment Variables
 
-### Environment Variables
-Create a `.env` file with the following settings:
+| Category | Keys |
+| --- | --- |
+| RPC endpoints | `L2_RPC_URL`, `L1_RPC_URL` |
+| Verification | `VERIFIER_URL`, `VERIFICATION_URL`, `ZKSYNC_VERIFIER_URL` |
+| Credentials | `PRIVATE_KEY` (0x or raw hex), `ACCOUNT` (Foundry keystore alias) |
+| Token metadata | `TOKEN_NAME`, `TOKEN_SYMBOL`, `TOKEN_DECIMALS` (default 18), `TOKEN_SUPPLY` (default 100 whole tokens) |
+| RPC test fixtures | `TEST_TX_HASH`, `TEST_ADDRESS`, `TEST_BLOCK_NUMBER`, `TEST_BLOCK_HASH`, `TEST_L1_BATCH_NUMBER`, `TEST_MESSAGE_INDEX`, `TEST_MESSAGE_PROOF_ADDRESS` |
+| Debug / throttling | `DEBUG_TRACER_TYPE`, `MAX_REQUESTS_PER_SECOND`, `BATCH_SIZE`, `BATCH_DELAY_MS` |
 
-#### RPC Configuration
-- `RPC_URL`: The RPC endpoint URL
-- `ZKSYNC_VERIFIER_URL`: URL for contract verification
-- `PRIVATE_KEY`: Private key for deployment (with or without 0x prefix)
+All variables above appear in `.env-example` with comments describing expected formats. Scripts that rely on `PRIVATE_KEY` add a `0x` prefix automatically if you omit it.
 
-#### Token Configuration
-- `TOKEN_NAME`: Name of the token to deploy
-- `TOKEN_SYMBOL`: Symbol of the token to deploy
+## Deployment Flow Details
 
-#### Test Data
-- `TEST_TX_HASH`: Transaction hash for testing
-- `TEST_ADDRESS`: Address for account testing
-- `TEST_BLOCK_NUMBER`: Specific L2 block number
-- `TEST_BLOCK_HASH`: Specific L2 block hash
-- `TEST_L1_BATCH_NUMBER`: Specific L1 batch number
-- `TEST_MESSAGE_INDEX`: Message index for L2 to L1 proofs
-- `TEST_MESSAGE_PROOF_ADDRESS`: Address for L2 to L1 message proofs
+- `script/DeployERC20.s.sol` is tuned for ZKsync Era: it pins decimals to 18, mints `100 * 10 ** 18`, broadcasts with `PRIVATE_KEY`, and verifies through `forge script ... --zksync --verify`.
+- `script/DeployERC20Evm.s.sol` targets standard EVM RPC endpoints and supports user-configurable `TOKEN_DECIMALS`/`TOKEN_SUPPLY`. The script normalizes the private key, calculates the scaled supply, then deploys `MyToken`.
+- `npm run deploy:counter` wraps `forge create` so you can quickly validate your signer configuration before attempting bigger deployments.
 
-#### Debug Configuration
-- `DEBUG_TRACER_TYPE`: Tracer type (e.g., 'callTracer', 'prestateTracer')
+## RPC Coverage Snapshot
 
-#### Rate Limiting
-- `MAX_REQUESTS_PER_SECOND`: Maximum requests per second (default: 1000)
-- `BATCH_SIZE`: Number of requests per batch (default: 10)
-- `BATCH_DELAY_MS`: Delay between batches in milliseconds (default: 1000)
+`index.js` currently exercises:
+
+- **Ethereum JSON-RPC:** `eth_accounts`, `eth_blockNumber`, `eth_call`, `eth_chainId`, `eth_estimateGas`, `eth_feeHistory`, `eth_gasPrice`, `eth_getBalance`, `eth_getBlockByHash`, `eth_getBlockByNumber`, `eth_getBlockReceipts`, `eth_getBlockTransactionCountByHash`, `eth_getBlockTransactionCountByNumber`, `eth_getCode`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_getLogs`, `eth_getStorageAt`, `eth_getTransactionByBlockHashAndIndex`, `eth_getTransactionByHash`, `eth_getTransactionCount`, `eth_getTransactionReceipt`, `eth_newBlockFilter`, `eth_newFilter`, `eth_newPendingTransactionFilter`, `eth_protocolVersion`, `eth_syncing`. Calls that require an unlocked signer / WS transport (`eth_sendRawTransaction`, `eth_sendTransaction`, `eth_subscribe`) are skipped intentionally.
+- **Debug JSON-RPC:** hooks are wired for `debug_traceBlockByNumber`, `debug_traceBlockByHash`, `debug_traceCall`, `debug_traceTransaction` (controlled via the same `.env` inputs).
+- **ZKsync JSON-RPC:** `zks_estimateFee`, `zks_estimateGasL1ToL2`, `zks_getBridgeContracts`, `zks_L1ChainId`, `zks_getConfirmedTokens`, `zks_getAllAccountBalances`, `zks_getL2ToL1MsgProof`, `zks_L1BatchNumber`, `zks_getBlockDetails`, `zks_getTransactionDetails`, `zks_getL1BatchDetails`, `zks_getProtocolVersion`.
+
+Each run writes a pass/fail summary to `logs/test_results.log` and any failures with payloads to `logs/errors.log`, making it easy to diff regressions between networks.
 
 ## Dependencies
 
-### Node.js Dependencies
-- axios: For making HTTP requests
-- dotenv: For environment variable management
+- **Node.js**: `axios`, `dotenv`, `cross-env` (installed via `npm install`)
+- **Foundry**: `OpenZeppelin/openzeppelin-contracts`, `foundry-rs/forge-std` (installed automatically through the `postinstall` hook)
 
-### Foundry Dependencies
-- OpenZeppelin Contracts: For ERC20 token implementation
-- Forge Std: For testing utilities
-
-All dependencies are automatically installed when you run `npm install`.
-
-## Contract Deployment
-
-### ERC20 Token Deployment and Verification
-The repository includes a Foundry-based setup for deploying ERC20 tokens on ZKsync:
-
-```bash
-npm run deploy:token
-```
-
-This will:
-- Deploy an ERC20 token with specified name and symbol
-- Use 18 decimals and 100 tokens as initial supply
-- Verify the contract on ZKsync
-- Handle all ZKsync-specific configuration
-
-## RPC Testing
-
-### Test Categories
-
-#### Ethereum RPC Tests
-- [ ] eth_chainId
-- [ ] eth_blockNumber
-- [ ] eth_getBlockByNumber
-- [ ] eth_getBlockByHash
-- [ ] eth_getTransactionByHash
-- [ ] eth_getTransactionReceipt
-- [ ] eth_getBalance
-- [ ] eth_call
-- [ ] eth_estimateGas
-- [ ] eth_getLogs
-- [ ] eth_sendRawTransaction
-- [ ] eth_syncing
-
-#### Debug RPC Tests
-- [ ] debug_traceBlockByNumber
-- [ ] debug_traceBlockByHash
-- [ ] debug_traceCall
-- [ ] debug_traceTransaction
-
-#### ZKsync RPC Tests
-- [ ] zks_estimateFee
-- [ ] zks_estimateGasL1ToL2
-- [ ] zks_getBridgeContracts
-- [ ] zks_L1ChainId
-- [ ] zks_getConfirmedTokens
-- [ ] zks_getAllAccountBalances
-- [ ] zks_getL2ToL1MsgProof
-- [ ] zks_L1BatchNumber
-- [ ] zks_getBlockDetails
-- [ ] zks_getTransactionDetails
-- [ ] zks_getL1BatchDetails
-- [ ] zks_getProtocolVersion
+Ensure Foundry is installed globally (`foundryup`) before running the deployment scripts.

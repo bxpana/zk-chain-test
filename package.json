@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "rpc": "source .env && node index.js",
-    "deploy:token": "source .env && TOKEN_NAME=$TOKEN_NAME TOKEN_SYMBOL=$TOKEN_SYMBOL forge script script/DeployERC20.s.sol --zksync --rpc-url $RPC_URL --broadcast --verify --verifier zksync --verifier-url $ZKSYNC_VERIFIER_URL --zk-optimizer-mode 3",
+    "deploy:token:zk": "source .env && TOKEN_NAME=$TOKEN_NAME TOKEN_SYMBOL=$TOKEN_SYMBOL forge script script/DeployERC20.s.sol --zksync --rpc-url $L2_RPC_URL --broadcast --verify --verifier zksync --verifier-url $VERIFIER_URL --zk-optimizer-mode 3",
+    "deploy:token:evm": "source .env && forge script script/DeployERC20Evm.s.sol --rpc-url $L2_RPC_URL --broadcast -vv --etherscan-api-key 'verifyContract' --verifier-url $VERIFICATION_URL",
+    "deploy:counter": "source .env && forge create src/Counter.sol:Counter --rpc-url $L2_RPC_URL --account $ACCOUNT --broadcast --verify --verifier custom --verifier-url $VERIFICATION_URL",
+    "deploy:token": "source .env && forge create src/MyToken.sol:MyToken --rpc-url $L2_RPC_URL --account $ACCOUNT --constructor-args $TOKEN_NAME $TOKEN_SYMBOL $TOKEN_DECIMALS $TOKEN_SUPPLY --broadcast --verify --verifier custom --verifier-url $VERIFICATION_URL",
     "postinstall": "forge install OpenZeppelin/openzeppelin-contracts && forge install foundry-rs/forge-std"
   },
   "dependencies": {

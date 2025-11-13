@@ -302,6 +302,181 @@ class ZKSyncRPCTester {
         }
     }
 
+    async recordDirectResult(result) {
+        try {
+            await this.logResult(result);
+            if (!result.success && result.errorCode !== 'SKIPPED') {
+                await this.logError(result);
+            }
+        } catch (error) {
+            console.error(`Failed to record result for ${result.method}:`, error.message);
+        }
+        this.results.push(result);
+    }
+
+    async recordSkippedTest(method, reason) {
+        const result = {
+            method,
+            success: false,
+            error: reason,
+            errorCode: 'SKIPPED',
+            errorDetails: reason,
+            duration: '0ms',
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            await this.logResult(result);
+        } catch (error) {
+            console.error(`Failed to log skipped test for ${method}:`, error.message);
+        }
+
+        this.results.push(result);
+    }
+
+    getLatestSuccessfulResult(method) {
+        for (let i = this.results.length - 1; i >= 0; i--) {
+            const result = this.results[i];
+            if (result.method === method && result.success) {
+                return result;
+            }
+        }
+        return null;
+    }
+
+    async runEthereumRpcTests(latestBlockNumberHex, latestBlockHash) {
+        let testBlockNumberHex = latestBlockNumberHex;
+        if (process.env.TEST_BLOCK_NUMBER) {
+            try {
+                testBlockNumberHex = await this.validateBlockNumber(process.env.TEST_BLOCK_NUMBER);
+            } catch (error) {
+                console.warn(`Invalid TEST_BLOCK_NUMBER: ${error.message}. Falling back to latest block.`);
+                testBlockNumberHex = latestBlockNumberHex;
+            }
+        }
+
+        let testBlockHash = latestBlockHash;
+        if (process.env.TEST_BLOCK_HASH) {
+            try {
+                testBlockHash = await this.validateBlockHash(process.env.TEST_BLOCK_HASH);
+            } catch (error) {
+                console.warn(`Invalid TEST_BLOCK_HASH: ${error.message}. Falling back to latest block hash.`);
+                testBlockHash = latestBlockHash;
+            }
+        }
+
+        // Core Ethereum RPC methods
+        this.requestQueue.push(
+            { method: 'eth_chainId', params: [] },
+            { method: 'eth_protocolVersion', params: [] },
+            { method: 'eth_accounts', params: [] },
+            { method: 'eth_gasPrice', params: [] },
+            { method: 'eth_feeHistory', params: ['0x5', 'latest', [10, 50, 90]] },
+            { method: 'eth_blockNumber', params: [] },
+            { method: 'eth_getBalance', params: [this.testAddress, 'latest'] },
+            { method: 'eth_getTransactionCount', params: [this.testAddress, 'latest'] },
+            { method: 'eth_getCode', params: [this.testAddress, 'latest'] },
+            { method: 'eth_getStorageAt', params: [this.testAddress, '0x0', 'latest'] },
+            { method: 'eth_call', params: [{ to: this.testAddress, data: '0x' }, 'latest'] },
+            { method: 'eth_estimateGas', params: [{ from: this.testAddress, to: this.testAddress, value: '0x0', data: '0x' }] },
+            { method: 'eth_getBlockByNumber', params: [testBlockNumberHex, true] },
+            { method: 'eth_getBlockByHash', params: [testBlockHash, true] },
+            { method: 'eth_getBlockReceipts', params: [testBlockHash] },
+            { method: 'eth_getBlockTransactionCountByNumber', params: [testBlockNumberHex] },
+            { method: 'eth_getBlockTransactionCountByHash', params: [testBlockHash] },
+            { method: 'eth_getTransactionByHash', params: [this.testTxHash] },
+            { method: 'eth_getTransactionReceipt', params: [this.testTxHash] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+
+        const latestReceipt = this.getLatestSuccessfulResult('eth_getTransactionReceipt');
+        const txBlockHash = latestReceipt?.result?.blockHash || testBlockHash;
+        const txIndex = latestReceipt?.result?.transactionIndex || '0x0';
+        const txBlockNumber = latestReceipt?.result?.blockNumber || testBlockNumberHex;
+
+        const receiptFirstLogAddress = latestReceipt?.result?.logs && latestReceipt.result.logs.length > 0
+            ? latestReceipt.result.logs[0].address
+            : undefined;
+
+        const logsFilter = {
+            fromBlock: txBlockNumber || testBlockNumberHex,
+            toBlock: txBlockNumber || testBlockNumberHex
+        };
+        if (receiptFirstLogAddress) {
+            logsFilter.address = receiptFirstLogAddress;
+        }
+
+        this.requestQueue.push(
+            { method: 'eth_getTransactionByBlockHashAndIndex', params: [txBlockHash, txIndex] },
+            { method: 'eth_getLogs', params: [logsFilter] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+
+        // Filter-based methods
+        try {
+            const newFilterResponse = await this.makeRPCRequest('eth_newFilter', [{ fromBlock: txBlockNumber || testBlockNumberHex, toBlock: txBlockNumber || testBlockNumberHex }]);
+            await this.recordDirectResult(newFilterResponse);
+
+            if (newFilterResponse.success) {
+                const filterId = newFilterResponse.result;
+
+                this.requestQueue.push(
+                    { method: 'eth_getFilterChanges', params: [filterId] },
+                    { method: 'eth_getFilterLogs', params: [filterId] }
+                );
+
+                await this.processQueue();
+                this.requestQueue = [];
+
+                const uninstallFilterResponse = await this.makeRPCRequest('eth_uninstallFilter', [filterId]);
+                await this.recordDirectResult(uninstallFilterResponse);
+            }
+        } catch (error) {
+            console.error('Error during filter tests:', error.message);
+        }
+
+        try {
+            const newBlockFilterResponse = await this.makeRPCRequest('eth_newBlockFilter', []);
+            await this.recordDirectResult(newBlockFilterResponse);
+            if (newBlockFilterResponse.success) {
+                const blockFilterId = newBlockFilterResponse.result;
+                const uninstallBlockFilterResponse = await this.makeRPCRequest('eth_uninstallFilter', [blockFilterId]);
+                await this.recordDirectResult(uninstallBlockFilterResponse);
+            }
+        } catch (error) {
+            console.error('Error during block filter tests:', error.message);
+        }
+
+        try {
+            const newPendingTxFilterResponse = await this.makeRPCRequest('eth_newPendingTransactionFilter', []);
+            await this.recordDirectResult(newPendingTxFilterResponse);
+            if (newPendingTxFilterResponse.success) {
+                const pendingTxFilterId = newPendingTxFilterResponse.result;
+                const uninstallPendingFilterResponse = await this.makeRPCRequest('eth_uninstallFilter', [pendingTxFilterId]);
+                await this.recordDirectResult(uninstallPendingFilterResponse);
+            }
+        } catch (error) {
+            console.error('Error during pending transaction filter tests:', error.message);
+        }
+
+        // Methods requiring additional infrastructure - mark as skipped
+        await this.recordSkippedTest('eth_sendTransaction', 'eth_sendTransaction requires an unlocked account on the target node');
+        await this.recordSkippedTest('eth_sendRawTransaction', 'eth_sendRawTransaction requires a signed transaction payload');
+        await this.recordSkippedTest('eth_subscribe', 'eth_subscribe is only available over WebSocket connections');
+
+        // Remaining standalone methods
+        this.requestQueue.push(
+            { method: 'eth_syncing', params: [] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+    }
+
     async fetchL2ToL1MessageSenders() {
         try {
             // First get the latest L1 batch number
@@ -489,6 +664,13 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
             throw error;
         }
 
+        const latestBlockInfo = await this.fetchLatestBlockInfo();
+        const latestBlockNumberHex = latestBlockInfo.blockNumber;
+        const latestBlockHash = latestBlockInfo.blockHash;
+        const latestBlockNumber = this.hexToDecimal(latestBlockNumberHex);
+
+        await this.runEthereumRpcTests(latestBlockNumberHex, latestBlockHash);
+
         // First batch of independent RPC calls
         this.requestQueue.push(
             { method: 'zks_estimateFee', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
@@ -510,10 +692,6 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
         // Get the latest L1 batch number from the previous results
         const l1BatchNumberResult = this.results.find(r => r.method === 'zks_L1BatchNumber' && r.success);
         const latestL1BatchNumber = l1BatchNumberResult ? this.hexToDecimal(l1BatchNumberResult.result) : null;
-
-        // Get latest block number
-        const blockNumberResponse = await this.makeRPCRequest('eth_blockNumber', []);
-        const latestBlockNumber = blockNumberResponse.success ? this.hexToDecimal(blockNumberResponse.result) : null;
 
         // Second batch using data from first batch
         this.requestQueue.push(
@@ -552,61 +730,6 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
 
         await this.processQueue();
         this.requestQueue = [];
-
-        // Filter tests need to be done in sequence
-        try {
-            // Create a new filter
-            const newFilterResponse = await this.makeRPCRequest('eth_newFilter', [{ fromBlock: latestBlockNumber, toBlock: latestBlockNumber }]);
-            if (newFilterResponse.success) {
-                const filterId = newFilterResponse.result;
-                console.log(`Created filter with ID: ${filterId}`);
-
-                // Test filter methods with the new filter ID
-                this.requestQueue.push(
-                    { method: 'eth_getFilterChanges', params: [filterId] },
-                    { method: 'eth_getFilterLogs', params: [filterId] }
-                );
-
-                await this.processQueue();
-                this.requestQueue = [];
-
-                // Clean up the filter
-                await this.makeRPCRequest('eth_uninstallFilter', [filterId]);
-            }
-        } catch (error) {
-            console.error('Error during filter tests:', error.message);
-        }
-
-        // Block filter tests
-        try {
-            const newBlockFilterResponse = await this.makeRPCRequest('eth_newBlockFilter', []);
-            if (newBlockFilterResponse.success) {
-                const blockFilterId = newBlockFilterResponse.result;
-                console.log(`Created block filter with ID: ${blockFilterId}`);
-                await this.makeRPCRequest('eth_uninstallFilter', [blockFilterId]);
-            }
-        } catch (error) {
-            console.error('Error during block filter tests:', error.message);
-        }
-
-        // Pending transaction filter tests
-        try {
-            const newPendingTxFilterResponse = await this.makeRPCRequest('eth_newPendingTransactionFilter', []);
-            if (newPendingTxFilterResponse.success) {
-                const pendingTxFilterId = newPendingTxFilterResponse.result;
-                console.log(`Created pending transaction filter with ID: ${pendingTxFilterId}`);
-                await this.makeRPCRequest('eth_uninstallFilter', [pendingTxFilterId]);
-            }
-        } catch (error) {
-            console.error('Error during pending transaction filter tests:', error.message);
-        }
-
-        // Skip sendRawTransaction test as it requires a valid signed transaction
-        this.requestQueue.push(
-            { method: 'eth_syncing', params: [] }
-        );
-
-        await this.processQueue();
         await this.printResults();
     }
 
