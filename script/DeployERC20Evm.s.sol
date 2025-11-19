@@ -6,18 +6,7 @@ import "../src/MyToken.sol";
 
 contract DeployERC20Evm is Script {
     function run() external {
-        string memory privateKeyStr = vm.envString("PRIVATE_KEY");
-        if (bytes(privateKeyStr).length >= 2) {
-            bytes memory keyBytes = bytes(privateKeyStr);
-            if (keyBytes[0] != "0" || keyBytes[1] != "x") {
-                privateKeyStr = string.concat("0x", privateKeyStr);
-            }
-        } else {
-            privateKeyStr = string.concat("0x", privateKeyStr);
-        }
-
-        uint256 deployerPrivateKey = vm.parseUint(privateKeyStr);
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast(); // signer resolved via forge CLI flags (e.g. --account)
 
         string memory name = vm.envString("TOKEN_NAME");
         string memory symbol = vm.envString("TOKEN_SYMBOL");

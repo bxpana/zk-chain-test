@@ -365,27 +365,54 @@ class ZKSyncRPCTester {
             }
         }
 
+        const zeroStorageKey = `0x${'0'.repeat(64)}`;
+        const simpleTransaction = { from: this.testAddress, to: this.testAddress, value: '0x0', data: '0x' };
+        const simulatePayload = {
+            blockStateCalls: [
+                {
+                    calls: [
+                        {
+                            from: this.testAddress,
+                            to: this.testAddress,
+                            gas: '0x5208',
+                            value: '0x0',
+                            input: '0x'
+                        }
+                    ]
+                }
+            ]
+        };
+
         // Core Ethereum RPC methods
         this.requestQueue.push(
+            { method: 'web3_clientVersion', params: [] },
             { method: 'eth_chainId', params: [] },
             { method: 'eth_protocolVersion', params: [] },
+            { method: 'eth_coinbase', params: [] },
             { method: 'eth_accounts', params: [] },
             { method: 'eth_gasPrice', params: [] },
+            { method: 'eth_blobBaseFee', params: [] },
+            { method: 'eth_maxPriorityFeePerGas', params: [] },
             { method: 'eth_feeHistory', params: ['0x5', 'latest', [10, 50, 90]] },
             { method: 'eth_blockNumber', params: [] },
             { method: 'eth_getBalance', params: [this.testAddress, 'latest'] },
             { method: 'eth_getTransactionCount', params: [this.testAddress, 'latest'] },
             { method: 'eth_getCode', params: [this.testAddress, 'latest'] },
             { method: 'eth_getStorageAt', params: [this.testAddress, '0x0', 'latest'] },
+            { method: 'eth_getProof', params: [this.testAddress, [zeroStorageKey], testBlockNumberHex] },
             { method: 'eth_call', params: [{ to: this.testAddress, data: '0x' }, 'latest'] },
-            { method: 'eth_estimateGas', params: [{ from: this.testAddress, to: this.testAddress, value: '0x0', data: '0x' }] },
+            { method: 'eth_estimateGas', params: [simpleTransaction] },
+            { method: 'eth_createAccessList', params: [simpleTransaction, 'latest'] },
             { method: 'eth_getBlockByNumber', params: [testBlockNumberHex, true] },
             { method: 'eth_getBlockByHash', params: [testBlockHash, true] },
             { method: 'eth_getBlockReceipts', params: [testBlockHash] },
+            { method: 'eth_getUncleCountByBlockHash', params: [testBlockHash] },
+            { method: 'eth_getUncleCountByBlockNumber', params: [testBlockNumberHex] },
             { method: 'eth_getBlockTransactionCountByNumber', params: [testBlockNumberHex] },
             { method: 'eth_getBlockTransactionCountByHash', params: [testBlockHash] },
             { method: 'eth_getTransactionByHash', params: [this.testTxHash] },
-            { method: 'eth_getTransactionReceipt', params: [this.testTxHash] }
+            { method: 'eth_getTransactionReceipt', params: [this.testTxHash] },
+            { method: 'eth_simulateV1', params: [simulatePayload, 'latest'] }
         );
 
         await this.processQueue();
@@ -410,6 +437,7 @@ class ZKSyncRPCTester {
 
         this.requestQueue.push(
             { method: 'eth_getTransactionByBlockHashAndIndex', params: [txBlockHash, txIndex] },
+            { method: 'eth_getTransactionByBlockNumberAndIndex', params: [txBlockNumber || testBlockNumberHex, txIndex] },
             { method: 'eth_getLogs', params: [logsFilter] }
         );
 
@@ -464,6 +492,8 @@ class ZKSyncRPCTester {
         }
 
         // Methods requiring additional infrastructure - mark as skipped
+        await this.recordSkippedTest('eth_sign', 'eth_sign requires an unlocked account managed by the target node');
+        await this.recordSkippedTest('eth_signTransaction', 'eth_signTransaction requires an unlocked account managed by the target node');
         await this.recordSkippedTest('eth_sendTransaction', 'eth_sendTransaction requires an unlocked account on the target node');
         await this.recordSkippedTest('eth_sendRawTransaction', 'eth_sendRawTransaction requires a signed transaction payload');
         await this.recordSkippedTest('eth_subscribe', 'eth_subscribe is only available over WebSocket connections');
@@ -471,6 +501,45 @@ class ZKSyncRPCTester {
         // Remaining standalone methods
         this.requestQueue.push(
             { method: 'eth_syncing', params: [] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+        return {
+            txBlockNumber: txBlockNumber || testBlockNumberHex,
+            txBlockHash,
+            txIndex
+        };
+    }
+
+    async runDebugRpcTests(debugContext = {}) {
+        const targetBlockNumber = debugContext.blockNumberHex || 'latest';
+        const targetBlockHash = debugContext.blockHash;
+        const traceConfig = { tracer: this.debugTracerType };
+        const traceCallRequest = {
+            from: this.testAddress,
+            to: this.testAddress,
+            gas: '0x5208',
+            value: '0x0',
+            input: '0x'
+        };
+
+        if (targetBlockHash) {
+            this.requestQueue.push(
+                { method: 'debug_traceBlockByHash', params: [targetBlockHash, traceConfig] }
+            );
+        }
+
+        this.requestQueue.push(
+            { method: 'debug_traceBlockByNumber', params: [targetBlockNumber, traceConfig] },
+            { method: 'debug_traceCall', params: [traceCallRequest, targetBlockNumber, traceConfig] },
+            { method: 'debug_traceTransaction', params: [this.testTxHash, traceConfig] },
+            { method: 'debug_getRawTransactions', params: [targetBlockNumber, traceConfig] },
+            { method: 'debug_getRawHeader', params: [targetBlockNumber] },
+            { method: 'debug_getRawBlock', params: [targetBlockNumber] },
+            { method: 'debug_getRawReceipts', params: [targetBlockNumber] },
+            { method: 'debug_getRawTransaction', params: [this.testTxHash] },
+            { method: 'debug_getBadBlocks', params: [] }
         );
 
         await this.processQueue();
@@ -669,7 +738,11 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
         const latestBlockHash = latestBlockInfo.blockHash;
         const latestBlockNumber = this.hexToDecimal(latestBlockNumberHex);
 
-        await this.runEthereumRpcTests(latestBlockNumberHex, latestBlockHash);
+        const ethereumContext = await this.runEthereumRpcTests(latestBlockNumberHex, latestBlockHash);
+        await this.runDebugRpcTests({
+            blockNumberHex: ethereumContext?.txBlockNumber || latestBlockNumberHex,
+            blockHash: ethereumContext?.txBlockHash || latestBlockHash
+        });
 
         // First batch of independent RPC calls
         this.requestQueue.push(
