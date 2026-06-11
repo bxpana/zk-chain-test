@@ -6,8 +6,10 @@
   "scripts": {
     "rpc": "source .env && node index.js",
     "deploy:token:zk": "source .env && TOKEN_NAME=$TOKEN_NAME TOKEN_SYMBOL=$TOKEN_SYMBOL forge script script/DeployERC20.s.sol --zksync --rpc-url $L2_RPC_URL --broadcast --verify --verifier zksync --verifier-url $VERIFIER_URL --zk-optimizer-mode 3",
-    "deploy:token:evm": "source .env && forge script script/DeployERC20Evm.s.sol --rpc-url $L2_RPC_URL --account $ACCOUNT --broadcast --skip-simulation -vv --etherscan-api-key 'verifyContract' --verifier-url $VERIFICATION_URL",
+    "deploy:token:evm": "source .env && forge script script/DeployERC20Evm.s.sol --rpc-url $L2_RPC_URL --account $ACCOUNT --broadcast --skip-simulation --verify --verifier custom --verifier-url $VERIFICATION_URL",
     "deploy:counter": "source .env && forge create src/Counter.sol:Counter --rpc-url $L2_RPC_URL --account $ACCOUNT --broadcast --verify --verifier custom --verifier-url $VERIFICATION_URL",
+    "deposit-cbt": "source .env && AMOUNT_WEI=$(cast to-wei $AMOUNT) && cast send $L1_CBT_ADDRESS \"approve(address,uint256)\" $L1_NTV $AMOUNT_WEI -r $L1_RPC_URL --account $ACCOUNT && cast send -r $L1_RPC_URL $BRIDGEHUB_ADDRESS \"requestL2TransactionDirect((uint256,uint256,address,uint256,bytes,uint256,uint256,bytes[],address))\" \"($CHAIN_ID,$AMOUNT_WEI,$TO_ADDRESS,50,0x,300000,800,[],$TO_ADDRESS)\" --value 0 --account $ACCOUNT",
+    "deposit": "source .env && AMOUNT_WEI=$(cast to-wei $AMOUNT) && cast send -r $L1_RPC_URL $BRIDGEHUB_ADDRESS \"requestL2TransactionDirect((uint256,uint256,address,uint256,bytes,uint256,uint256,bytes[],address))\" \"($CHAIN_ID,$AMOUNT_WEI,$TO_ADDRESS,50,0x,300000,800,[],$TO_ADDRESS)\" --value $AMOUNT_WEI --account $ACCOUNT",
     "postinstall": "forge install OpenZeppelin/openzeppelin-contracts && forge install foundry-rs/forge-std"
   },
   "dependencies": {
