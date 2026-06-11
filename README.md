@@ -21,8 +21,8 @@ Both pieces share the same `.env` configuration so you can reuse RPC endpoints, 
 | `npm run deploy:token:zk` | Runs `forge script script/DeployERC20.s.sol` with ZKsync’s `--zksync` pipeline, broadcasts the deployment, and submits verification using `VERIFIER_URL`. Requires `PRIVATE_KEY`. |
 | `npm run deploy:token:evm` | Runs `forge script script/DeployERC20Evm.s.sol` against `L2_RPC_URL` with `--skip-simulation`. Reads token metadata plus optional `TOKEN_DECIMALS`/`TOKEN_SUPPLY`. Signs with the `ACCOUNT` keystore alias and verifies through the custom verifier at `VERIFICATION_URL`. |
 | `npm run deploy:counter` | Uses `forge create` to deploy `Counter.sol` with the configured `--account` alias (recommended for hardware or keystore-backed flows). |
-| `npm run deposit` | Deposits the base token from L1 to L2 via the Bridgehub's `requestL2TransactionDirect`. Requires `CHAIN_ID`, `TO_ADDRESS`, `AMOUNT`, `BRIDGEHUB_ADDRESS`, `L1_RPC_URL`, and `ACCOUNT`. |
-| `npm run deposit-cbt` | Same deposit flow for chains with a custom base token: first approves `L1_NTV` to spend `AMOUNT` of `L1_CBT_ADDRESS`, then calls the Bridgehub with `--value 0`. |
+| `npm run deposit` | Use when your chain's base token is ETH. Deposits ETH from L1 to L2 via the Bridgehub's `requestL2TransactionDirect`, sending `AMOUNT` as the transaction value. Requires `CHAIN_ID`, `TO_ADDRESS`, `AMOUNT`, `BRIDGEHUB_ADDRESS`, `L1_RPC_URL`, and `ACCOUNT`. |
+| `npm run deposit-cbt` | Use when your chain has a custom base token (CBT). First approves `L1_NTV` to spend `AMOUNT` of the ERC20 at `L1_CBT_ADDRESS`, then calls the Bridgehub with `--value 0` so the token is pulled from the vault instead of sent as ETH. |
 
 > Note: set `AMOUNT` in `.env` as whole tokens (e.g. `AMOUNT=1` or `AMOUNT=2.5`). The deposit scripts convert it to 18 decimals automatically with `cast to-wei`, so you no longer need to write out the full wei value.
 
@@ -74,7 +74,7 @@ All variables above appear in `.env-example` with comments describing expected f
 
 - `script/DeployERC20.s.sol` is tuned for ZKsync Era: it pins decimals to 18, mints `100 * 10 ** 18`, broadcasts with `PRIVATE_KEY`, and verifies through `forge script ... --zksync --verify`.
 - `script/DeployERC20Evm.s.sol` targets standard EVM RPC endpoints and supports user-configurable `TOKEN_DECIMALS`/`TOKEN_SUPPLY`. The signer is resolved by forge CLI flags (`--account $ACCOUNT`), then the script calculates the scaled supply and deploys `MyToken`.
-- `npm run deposit` and `npm run deposit-cbt` send L1 -> L2 deposits through the Bridgehub. `AMOUNT` is converted from whole tokens to 18 decimals with `cast to-wei` before the transactions are sent.
+- `npm run deposit` and `npm run deposit-cbt` send L1 -> L2 deposits through the Bridgehub, but they are not interchangeable: `deposit` is for chains whose base token is ETH (the amount rides along as msg.value), while `deposit-cbt` is for chains with a custom base token (an ERC20 approval to the Native Token Vault followed by a zero-value Bridgehub call). In both cases `AMOUNT` is converted from whole tokens to 18 decimals with `cast to-wei` before the transactions are sent.
 - `npm run deploy:counter` wraps `forge create` so you can quickly validate your signer configuration before attempting bigger deployments.
 
 ## RPC Coverage Snapshot
