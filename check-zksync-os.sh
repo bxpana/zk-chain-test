@@ -19,49 +19,55 @@ ETH_TOKEN=0x0000000000000000000000000000000000000001
 ZERO=0x0000000000000000000000000000000000000000
 DEV=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266   # anvil's first dev account, unlocked on forks
 
+# Public RPCs time out now and then. Retry read-only calls up to 3 times (never cast send).
+castr() {
+  for _ in 1 2; do cast "$@" 2>/dev/null && return; sleep 2; done
+  cast "$@"
+}
+
 # ZKsync OS does not implement these, so their failures are expected. The filter methods fail
 # intermittently on multi-node public RPCs because each node keeps filters in its own memory.
 EXPECTED="eth_coinbase eth_blobBaseFee eth_getProof eth_createAccessList debug_getRawTransactions debug_getRawHeader debug_getRawBlock debug_getRawReceipts debug_getRawTransaction debug_getBadBlocks"
 FLAKY="eth_getFilterChanges eth_getFilterLogs"
 
 # --- 1. discovery ------------------------------------------------------------
-CLIENT=$(cast rpc web3_clientVersion -r "$L2" | tr -d '"')
+CLIENT=$(castr rpc web3_clientVersion -r "$L2" | tr -d '"')
 [[ "$CLIENT" == zksync-os* ]] || { echo "ABORT: $CLIENT is not a ZKsync OS node, use npm run rpc:eravm"; exit 1; }
-CHAIN_ID=$(cast chain-id -r "$L2")
-BRIDGEHUB=$(cast rpc zks_getBridgehubContract -r "$L2" | tr -d '"')
+CHAIN_ID=$(castr chain-id -r "$L2")
+BRIDGEHUB=$(castr rpc zks_getBridgehubContract -r "$L2" | tr -d '"')
 
 if [ -z "$L1" ]; then
   for u in https://ethereum-rpc.publicnode.com https://ethereum-sepolia-rpc.publicnode.com; do
-    d=$(cast call "$BRIDGEHUB" "getZKChain(uint256)(address)" "$CHAIN_ID" -r "$u" 2>/dev/null || true)
+    d=$(castr call "$BRIDGEHUB" "getZKChain(uint256)(address)" "$CHAIN_ID" -r "$u" 2>/dev/null || true)
     if [ -n "$d" ] && [ "$d" != "$ZERO" ]; then L1=$u; break; fi
   done
   [ -n "$L1" ] || { echo "ABORT: no public L1 knows chain $CHAIN_ID at Bridgehub $BRIDGEHUB, pass l1-rpc-url"; exit 1; }
 fi
 
-DIAMOND=$(cast call "$BRIDGEHUB" "getZKChain(uint256)(address)" "$CHAIN_ID" -r "$L1")
-BASE_TOKEN=$(cast call "$BRIDGEHUB" "baseToken(uint256)(address)" "$CHAIN_ID" -r "$L1")
-NTV=$(cast call "$(cast call "$BRIDGEHUB" "assetRouter()(address)" -r "$L1")" "nativeTokenVault()(address)" -r "$L1")
-PROTOCOL=$(cast call "$DIAMOND" "getSemverProtocolVersion()(uint32,uint32,uint32)" -r "$L1" | paste -sd. -)
+DIAMOND=$(castr call "$BRIDGEHUB" "getZKChain(uint256)(address)" "$CHAIN_ID" -r "$L1")
+BASE_TOKEN=$(castr call "$BRIDGEHUB" "baseToken(uint256)(address)" "$CHAIN_ID" -r "$L1")
+NTV=$(castr call "$(castr call "$BRIDGEHUB" "assetRouter()(address)" -r "$L1")" "nativeTokenVault()(address)" -r "$L1")
+PROTOCOL=$(castr call "$DIAMOND" "getSemverProtocolVersion()(uint32,uint32,uint32)" -r "$L1" | paste -sd. -)
 
 # Fixtures: newest block with a transaction inside a sealed batch, searching back up to 5 batches.
-BATCH=$(cast rpc zks_batchNumber -r "$L2")
+BATCH=$(castr rpc zks_batchNumber -r "$L2")
 for ((b=BATCH; b>BATCH-5 && b>0; b--)); do
-  range=$(cast rpc zks_getBatchByNumber "$b" -r "$L2" | jq -r '"\(.block_range.start) \(.block_range.end)"')
+  range=$(castr rpc zks_getBatchByNumber "$b" -r "$L2" | jq -r '"\(.block_range.start) \(.block_range.end)"')
   read -r start end <<< "$range"
   for ((n=end; n>=start; n--)); do
-    TX=$(cast rpc eth_getBlockByNumber "$(cast to-hex "$n")" false -r "$L2" | jq -r '.transactions[0] // empty')
+    TX=$(castr rpc eth_getBlockByNumber "$(cast to-hex "$n")" false -r "$L2" | jq -r '.transactions[0] // empty')
     [ -n "$TX" ] && break 2
   done
 done
 [ -n "${TX:-}" ] || { echo "ABORT: no transactions in the last 5 batches"; exit 1; }
-BLOCK_HASH=$(cast rpc eth_getBlockByNumber "$(cast to-hex "$n")" false -r "$L2" | jq -r .hash)
-FROM=$(cast tx "$TX" from -r "$L2")
+BLOCK_HASH=$(castr rpc eth_getBlockByNumber "$(cast to-hex "$n")" false -r "$L2" | jq -r .hash)
+FROM=$(castr tx "$TX" from -r "$L2")
 
 echo "=============================================================="
 echo " Chain:       $CHAIN_ID   protocol $PROTOCOL   $CLIENT"
-echo " L1:          chain $(cast chain-id -r "$L1")   Bridgehub $BRIDGEHUB"
+echo " L1:          chain $(castr chain-id -r "$L1")   Bridgehub $BRIDGEHUB"
 echo " Diamond:     $DIAMOND"
-echo " Base token:  $([ "$BASE_TOKEN" = "$ETH_TOKEN" ] && echo ETH || echo "$BASE_TOKEN ($(cast call "$BASE_TOKEN" "symbol()(string)" -r "$L1" | tr -d '"'))")"
+echo " Base token:  $([ "$BASE_TOKEN" = "$ETH_TOKEN" ] && echo ETH || echo "$BASE_TOKEN ($(castr call "$BASE_TOKEN" "symbol()(string)" -r "$L1" | tr -d '"'))")"
 echo " Fixtures:    batch $b, block $n, tx $TX"
 echo "=============================================================="
 
@@ -97,7 +103,7 @@ echo "-- deposit dry run on L1 fork (mirrors npm run deposit / deposit-cbt, 1 to
 AMOUNT_WEI=$(cast to-wei 1)
 REQUEST="($CHAIN_ID,$AMOUNT_WEI,$DEV,50,0x,300000,800,[],$DEV)"
 SIG="requestL2TransactionDirect((uint256,uint256,address,uint256,bytes,uint256,uint256,bytes[],address))"
-BEFORE=$(cast call "$DIAMOND" "getTotalPriorityTxs()(uint256)" -r "$FORK")
+BEFORE=$(castr call "$DIAMOND" "getTotalPriorityTxs()(uint256)" -r "$FORK")
 if [ "$BASE_TOKEN" = "$ETH_TOKEN" ]; then
   cast send "$BRIDGEHUB" "$SIG" "$REQUEST" --value "$AMOUNT_WEI" --unlocked --from "$DEV" -r "$FORK" >/dev/null
 else
@@ -105,7 +111,7 @@ else
   cast send "$BASE_TOKEN" "approve(address,uint256)" "$NTV" "$AMOUNT_WEI" --unlocked --from "$DEV" -r "$FORK" >/dev/null
   cast send "$BRIDGEHUB" "$SIG" "$REQUEST" --value 0 --unlocked --from "$DEV" -r "$FORK" >/dev/null
 fi
-AFTER=$(cast call "$DIAMOND" "getTotalPriorityTxs()(uint256)" -r "$FORK")
+AFTER=$(castr call "$DIAMOND" "getTotalPriorityTxs()(uint256)" -r "$FORK")
 if [ "$((AFTER - BEFORE))" -eq 1 ]; then
   echo "   PASS: priority tx queued on the diamond ($BEFORE -> $AFTER)"
 else
