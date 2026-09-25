@@ -29,6 +29,8 @@ Both pieces share the same `.env` configuration so you can reuse RPC endpoints, 
 
 > Tip: import your signer with `forge account import <alias>` and set `ACCOUNT=<alias>` in `.env` so both `deploy:token:evm` and `deploy:counter` share the same keystore entry.
 
+> ZKsync OS chain check: `./check-zksync-os.sh <l2-rpc-url>` finds the chain's L1 contracts, runs the `zksync-os` RPC suite with auto-picked fixtures, tags expected ZKsync OS gaps, and dry-runs the matching deposit on a local anvil fork of L1. Nothing is sent to a real network. Needs `cast`, `anvil`, `jq` and `node`.
+
 ## Quick Start
 
 1. Clone & configure the project.
