@@ -6,7 +6,8 @@ const fs = require('fs').promises;
 const path = require('path');
 
 class ZKSyncRPCTester {
-    constructor() {
+    constructor(vm) {
+        this.vm = vm;
         // Validate required environment variables
         if (!process.env.RPC_URL) {
             throw new Error('RPC_URL is required in .env file');
@@ -706,7 +707,7 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
     }
 
     async runTests() {
-        console.log('Starting ZKsync RPC tests...');
+        console.log(`Starting ZKsync RPC tests (${this.vm})...`);
         console.log(`RPC URL: ${this.rpcUrl}`);
         console.log(`Test Transaction Hash: ${this.testTxHash}`);
         console.log(`Test Address: ${this.testAddress}`);
@@ -744,6 +745,15 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
             blockHash: ethereumContext?.txBlockHash || latestBlockHash
         });
 
+        if (this.vm === 'zksync-os') {
+            await this.runZksyncOsZksTests(ethereumContext);
+        } else {
+            await this.runEraVmZksTests(latestBlockNumber);
+        }
+        await this.printResults();
+    }
+
+    async runEraVmZksTests(latestBlockNumber) {
         // First batch of independent RPC calls
         this.requestQueue.push(
             { method: 'zks_estimateFee', params: [{ from: this.testAddress, to: this.testAddress, data: '0x' }] },
@@ -803,7 +813,50 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
 
         await this.processQueue();
         this.requestQueue = [];
-        await this.printResults();
+    }
+
+    // ZKsync OS serves only this subset of the zks namespace
+    async runZksyncOsZksTests(ethereumContext) {
+        const txBlockNumber = this.hexToDecimal(ethereumContext.txBlockNumber);
+
+        this.requestQueue.push(
+            { method: 'zks_getBridgehubContract', params: [] },
+            { method: 'zks_getBytecodeSupplierContract', params: [] },
+            { method: 'zks_batchNumber', params: [] },
+            { method: 'zks_getGenesis', params: [] },
+            { method: 'zks_getBlockMetadataByNumber', params: [txBlockNumber] },
+            { method: 'zks_getBatchByNumber', params: [this.testL1BatchNumber] },
+            { method: 'zks_getBatchByBlockNumber', params: [txBlockNumber] },
+            { method: 'zks_getL2ToL1LogProof', params: [this.testTxHash, 0] },
+            { method: 'zks_getProof', params: [this.testAddress, ['0x0000000000000000000000000000000000000000000000000000000000000000'], this.testL1BatchNumber] }
+        );
+
+        await this.processQueue();
+        this.requestQueue = [];
+
+        // Interop tree methods need a batched block and a real leaf. Read the newest leaf from the
+        // L2InteropCommitmentTree system contract at the last block of the latest batch.
+        try {
+            const batchNumber = this.getLatestSuccessfulResult('zks_batchNumber')?.result;
+            const batch = await this.makeRPCRequest('zks_getBatchByNumber', [batchNumber]);
+            const imtBlock = batch.result.block_range.end;
+            const blockTag = `0x${imtBlock.toString(16)}`;
+            const tree = '0x0000000000000000000000000000000000010012';
+            const leafCount = await this.makeRPCRequest('eth_call', [{ to: tree, data: '0x30e69fc3' }, blockTag]);
+            const lastIndex = (BigInt(leafCount.result) - 1n).toString(16).padStart(64, '0');
+            const leaf = await this.makeRPCRequest('eth_call', [{ to: tree, data: `0x17b0cba5${lastIndex}` }, blockTag]);
+            const leafValue = `0x${BigInt(leaf.result.slice(0, 66)).toString(16)}`;
+
+            this.requestQueue.push(
+                { method: 'zks_getImtInclusionProof', params: [leafValue, imtBlock] },
+                { method: 'zks_getImtLowNullifierIndex', params: ['0x1', imtBlock] }
+            );
+            await this.processQueue();
+            this.requestQueue = [];
+        } catch (error) {
+            await this.recordSkippedTest('zks_getImtInclusionProof', `Could not read interop commitment tree: ${error.message}`);
+            await this.recordSkippedTest('zks_getImtLowNullifierIndex', `Could not read interop commitment tree: ${error.message}`);
+        }
     }
 
     async printResults() {
@@ -835,7 +888,13 @@ Recent batches: ${Array.from(senderData.batchNumbers).join(', ')}
 }
 
 // Run the tests
-const tester = new ZKSyncRPCTester();
+const VMS = ['zksync-os', 'eravm'];
+const vm = process.argv[2];
+if (!VMS.includes(vm)) {
+    console.error(`Usage: node index.js <${VMS.join('|')}>`);
+    process.exit(1);
+}
+const tester = new ZKSyncRPCTester(vm);
 tester.runTests().catch(async (error) => {
     console.error('Fatal error:', error);
     await fs.appendFile(tester.errorFile, `[${new Date().toISOString()}] Fatal error: ${error.message}\n`);

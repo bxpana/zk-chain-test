@@ -1,7 +1,7 @@
 # ZKsync Chain Testing Suite
 
 This repository bundles two workflows:
-- a Node.js runner (`npm run rpc`) that hits Ethereum/ZKsync RPC endpoints with reproducible payloads, logging results under `logs/`
+- a Node.js runner (`npm run rpc:zksync-os` or `npm run rpc:eravm`) that hits Ethereum/ZKsync RPC endpoints with reproducible payloads, logging results under `logs/`
 - Foundry scripts for deploying example contracts (ERC20 + Counter) to L2 chains or general EVM testnets
 
 Both pieces share the same `.env` configuration so you can reuse RPC endpoints, deployer credentials, and token metadata.
@@ -17,7 +17,8 @@ Both pieces share the same `.env` configuration so you can reuse RPC endpoints, 
 
 | Command | Description |
 | --- | --- |
-| `npm run rpc` | Loads `.env` and executes `index.js`, which exercises the RPC suites and writes structured logs to `logs/test_results.log` and `logs/errors.log`. |
+| `npm run rpc:zksync-os` | Loads `.env` and runs the RPC suite for ZKsync OS chains (shared eth/debug tests plus the ZKsync OS `zks_*` methods). Writes structured logs to `logs/test_results.log` and `logs/errors.log`. |
+| `npm run rpc:eravm` | Same, but runs the EraVM `zks_*` methods instead. Use for Era-based chains. |
 | `npm run deploy:token:zk` | Runs `forge script script/DeployERC20.s.sol` with ZKsync’s `--zksync` pipeline, broadcasts the deployment, and submits verification using `VERIFIER_URL`. Requires `PRIVATE_KEY`. |
 | `npm run deploy:token:evm` | Runs `forge script script/DeployERC20Evm.s.sol` against `L2_RPC_URL` with `--skip-simulation`. Reads token metadata plus optional `TOKEN_DECIMALS`/`TOKEN_SUPPLY`. Signs with the `ACCOUNT` keystore alias and verifies through the custom verifier at `VERIFICATION_URL`. |
 | `npm run deploy:counter` | Uses `forge create` to deploy `Counter.sol` with the configured `--account` alias (recommended for hardware or keystore-backed flows). |
@@ -51,10 +52,12 @@ Both pieces share the same `.env` configuration so you can reuse RPC endpoints, 
    ```bash
    npm run deploy:counter
    ```
-7. Exercise RPC suites:
+7. Exercise the RPC suite that matches your chain:
    ```bash
-   npm run rpc
+   npm run rpc:zksync-os   # ZKsync OS chains
+   npm run rpc:eravm       # EraVM chains
    ```
+   On ZKsync OS, set `TEST_TX_HASH` to a transaction from a block that is already in a batch, otherwise `zks_getBatchByBlockNumber` and `zks_getL2ToL1LogProof` return no data.
 
 ## Environment Variables
 
@@ -79,11 +82,12 @@ All variables above appear in `.env-example` with comments describing expected f
 
 ## RPC Coverage Snapshot
 
-`index.js` currently exercises:
+`index.js` currently exercises (Ethereum and Debug sets run in both suites):
 
 - **Ethereum JSON-RPC:** `web3_clientVersion`, `eth_accounts`, `eth_blockNumber`, `eth_blobBaseFee`, `eth_call`, `eth_chainId`, `eth_coinbase`, `eth_createAccessList`, `eth_estimateGas`, `eth_feeHistory`, `eth_gasPrice`, `eth_getBalance`, `eth_getBlockByHash`, `eth_getBlockByNumber`, `eth_getBlockReceipts`, `eth_getBlockTransactionCountByHash`, `eth_getBlockTransactionCountByNumber`, `eth_getCode`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_getLogs`, `eth_getProof`, `eth_getStorageAt`, `eth_getTransactionByBlockHashAndIndex`, `eth_getTransactionByBlockNumberAndIndex`, `eth_getTransactionByHash`, `eth_getTransactionCount`, `eth_getTransactionReceipt`, `eth_getUncleCountByBlockHash`, `eth_getUncleCountByBlockNumber`, `eth_maxPriorityFeePerGas`, `eth_newBlockFilter`, `eth_newFilter`, `eth_newPendingTransactionFilter`, `eth_protocolVersion`, `eth_simulateV1`, `eth_syncing`. Methods that require an unlocked signer or WS transport (`eth_sign`, `eth_signTransaction`, `eth_sendRawTransaction`, `eth_sendTransaction`, `eth_subscribe`) are logged as skipped so gaps remain visible.
 - **Debug JSON-RPC:** `debug_traceBlockByHash`, `debug_traceBlockByNumber`, `debug_traceCall`, `debug_traceTransaction`, `debug_getRawTransactions`, `debug_getRawHeader`, `debug_getRawBlock`, `debug_getRawTransaction`, `debug_getRawReceipts`, `debug_getBadBlocks`.
-- **ZKsync JSON-RPC:** `zks_estimateFee`, `zks_estimateGasL1ToL2`, `zks_getBridgeContracts`, `zks_L1ChainId`, `zks_getConfirmedTokens`, `zks_getAllAccountBalances`, `zks_getL2ToL1MsgProof`, `zks_L1BatchNumber`, `zks_getBlockDetails`, `zks_getTransactionDetails`, `zks_getL1BatchDetails`, `zks_getProtocolVersion`.
+- **ZKsync JSON-RPC, EraVM (`rpc:eravm`):** `zks_estimateFee`, `zks_estimateGasL1ToL2`, `zks_getBridgehubContract`, `zks_getMainContract`, `zks_getTestnetPaymaster`, `zks_getBridgeContracts`, `zks_L1ChainId`, `zks_getBaseTokenL1Address`, `zks_getConfirmedTokens`, `zks_getAllAccountBalances`, `zks_L1BatchNumber`, `zks_getL2ToL1MsgProof`, `zks_getL2ToL1LogProof`, `zks_getBlockDetails`, `zks_getTransactionDetails`, `zks_getRawBlockTransactions`, `zks_getL1BatchDetails`, `zks_getBytecodeByHash`, `zks_getL1BatchBlockRange`, `zks_getL1GasPrice`, `zks_getFeeParams`, `zks_getProtocolVersion`, `zks_getProof`.
+- **ZKsync JSON-RPC, ZKsync OS (`rpc:zksync-os`):** `zks_getBridgehubContract`, `zks_getBytecodeSupplierContract`, `zks_batchNumber`, `zks_getGenesis`, `zks_getBlockMetadataByNumber`, `zks_getBatchByNumber`, `zks_getBatchByBlockNumber`, `zks_getL2ToL1LogProof`, `zks_getProof`, `zks_getImtInclusionProof`, `zks_getImtLowNullifierIndex`. The two interop methods read the newest leaf from the `L2InteropCommitmentTree` system contract (`0x…10012`), so they need no fixtures.
 
 Each run writes a pass/fail summary to `logs/test_results.log` and any failures with payloads to `logs/errors.log`, making it easy to diff regressions between networks.
 
