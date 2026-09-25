@@ -23,7 +23,7 @@ Both pieces share the same `.env` configuration so you can reuse RPC endpoints, 
 | `npm run deploy:token:evm` | Runs `forge script script/DeployERC20Evm.s.sol` against `L2_RPC_URL` with `--skip-simulation`. Reads token metadata plus optional `TOKEN_DECIMALS`/`TOKEN_SUPPLY`. Signs with the `ACCOUNT` keystore alias and verifies through the custom verifier at `VERIFICATION_URL`. |
 | `npm run deploy:counter` | Uses `forge create` to deploy `Counter.sol` with the configured `--account` alias (recommended for hardware or keystore-backed flows). |
 | `npm run deposit` | Use when your chain's base token is ETH. Deposits ETH from L1 to L2 via the Bridgehub's `requestL2TransactionDirect`, sending `AMOUNT` as the transaction value. Requires `CHAIN_ID`, `TO_ADDRESS`, `AMOUNT`, `BRIDGEHUB_ADDRESS`, `L1_RPC_URL`, and `ACCOUNT`. |
-| `npm run deposit-cbt` | Use when your chain has a custom base token (CBT). First approves `L1_NTV` to spend `AMOUNT` of the ERC20 at `L1_CBT_ADDRESS`, then calls the Bridgehub with `--value 0` so the token is pulled from the vault instead of sent as ETH. |
+| `npm run deposit-cbt` | Use when your chain has a custom base token (CBT). Looks up the chain's base token with `Bridgehub.baseToken(CHAIN_ID)`, approves `L1_NTV` to spend `AMOUNT` of it, then calls the Bridgehub with `--value 0` so the token is pulled from the vault instead of sent as ETH. |
 
 > Note: set `AMOUNT` in `.env` as whole tokens (e.g. `AMOUNT=1` or `AMOUNT=2.5`). The deposit scripts convert it to 18 decimals automatically with `cast to-wei`, so you no longer need to write out the full wei value.
 
@@ -69,7 +69,7 @@ Both pieces share the same `.env` configuration so you can reuse RPC endpoints, 
 | Verification | `VERIFIER_URL`, `VERIFICATION_URL`, `ZKSYNC_VERIFIER_URL` |
 | Credentials | `PRIVATE_KEY` (0x or raw hex), `ACCOUNT` (Foundry keystore alias) |
 | Token metadata | `TOKEN_NAME`, `TOKEN_SYMBOL`, `TOKEN_DECIMALS` (default 18), `TOKEN_SUPPLY` (default 100 whole tokens) |
-| Deposits | `CHAIN_ID`, `TO_ADDRESS`, `AMOUNT` (whole tokens, auto-converted to 18 decimals), `BRIDGEHUB_ADDRESS`, `L1_CBT_ADDRESS`, `L1_NTV` |
+| Deposits | `CHAIN_ID`, `TO_ADDRESS`, `AMOUNT` (whole tokens, auto-converted to 18 decimals), `BRIDGEHUB_ADDRESS`, `L1_NTV` |
 | RPC test fixtures | `TEST_TX_HASH`, `TEST_ADDRESS`, `TEST_BLOCK_NUMBER`, `TEST_BLOCK_HASH`, `TEST_L1_BATCH_NUMBER`, `TEST_MESSAGE_INDEX`, `TEST_MESSAGE_PROOF_ADDRESS` |
 | Debug / throttling | `DEBUG_TRACER_TYPE`, `MAX_REQUESTS_PER_SECOND`, `BATCH_SIZE`, `BATCH_DELAY_MS` |
 
